@@ -2,6 +2,78 @@
 
 Empty starter workspace for the Tup project.
 
+## Rust Development Environment
+
+This workspace includes a Docker-based development environment for Rust services.
+
+- Development container config: `.devcontainer/devcontainer.json`
+- Development image definition: `.devcontainer/Dockerfile`
+- Build context ignore rules: `.dockerignore`
+
+The container installs Rust through `rustup` and includes `rustfmt`, `clippy`, `rust-analyzer`, and LLDB support for service development.
+
+## Farmer Registration Service
+
+This project now includes a minimal Axum service for registering farmer businesses.
+
+- Health check: `GET /health`
+- Registration endpoint: `POST /farmers/register`
+- Database: PostgreSQL via `docker-compose.yml`
+
+### Registered Farmer Data
+
+- Business name
+- Farmer name
+- Email
+- Phone
+- Address line
+- City
+- Region
+- Postal code
+- Country
+- Latitude and longitude
+- Service radius in kilometers
+- Cultivated crops
+- Products for sale
+
+### Run Locally
+
+With Docker:
+
+```bash
+docker compose up --build
+```
+
+Without Docker:
+
+```bash
+cp .env.example .env
+cargo run
+```
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/farmers/register \
+	-H "Content-Type: application/json" \
+	-d '{
+		"business_name": "Green Valley Farm",
+		"farmer_name": "Amina Ndlovu",
+		"email": "amina@example.com",
+		"phone": "+27-555-0100",
+		"address_line1": "Plot 18 River Road",
+		"city": "Makhanda",
+		"region": "Eastern Cape",
+		"postal_code": "6139",
+		"country": "South Africa",
+		"latitude": -33.3106,
+		"longitude": 26.5256,
+		"service_radius_km": 25,
+		"cultivated_crops": ["maize", "spinach"],
+		"products_for_sale": ["fresh spinach", "maize meal"]
+	}'
+```
+
 ## Simple Platform Diagram
 
 ```mermaid
