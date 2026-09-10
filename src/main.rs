@@ -1,5 +1,6 @@
 use axum::{
     extract::State,
+    http::Method,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -8,6 +9,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{env, net::SocketAddr};
+use tower_http::cors::{Any, CorsLayer};
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -15,7 +19,23 @@ struct AppState {
     db: PgPool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({
+    "business_name": "Green Valley Farm",
+    "farmer_name": "Amina Ndlovu",
+    "email": "amina@example.com",
+    "phone": "+27-555-0100",
+    "address_line1": "Plot 18 River Road",
+    "city": "Makhanda",
+    "region": "Eastern Cape",
+    "postal_code": "6139",
+    "country": "South Africa",
+    "latitude": -33.3106,
+    "longitude": 26.5256,
+    "service_radius_km": 25,
+    "cultivated_crops": ["maize", "spinach"],
+    "products_for_sale": ["fresh spinach", "maize meal"]
+}))]
 struct FarmerRegistrationRequest {
     business_name: String,
     farmer_name: String,
@@ -33,7 +53,7 @@ struct FarmerRegistrationRequest {
     products_for_sale: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct FarmerRegistrationResponse {
     id: Uuid,
     business_name: String,
@@ -46,10 +66,20 @@ struct FarmerRegistrationResponse {
     products_for_sale: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct HealthResponse {
     status: &'static str,
 }
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(health_check, register_farmer),
+    components(schemas(FarmerRegistrationRequest, FarmerRegistrationResponse, HealthResponse)),
+    tags(
+        (name = "farmers", description = "Farmer business registration and health endpoints")
+    )
+)]
+struct ApiDoc;
 
 enum AppError {
     Validation(String),
@@ -79,8 +109,10 @@ impl IntoResponse for AppError {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/tup".to_string());
+    
     let port = env::var("PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -94,12 +126,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_schema(&db).await?;
 
     let state = AppState { db };
+    
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/farmers/register", post(register_farmer))
+        .route(
+            "/farmers/register",
+            post(register_farmer).options(farmers_register_preflight),
+        )
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                .allow_headers(Any),
+        )
         .with_state(state);
 
+    
     let address = SocketAddr::from(([0, 0, 0, 0], port));
+    
     let listener = tokio::net::TcpListener::bind(address).await?;
 
     println!("listening on http://{address}");
@@ -108,10 +153,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[utoipa::path(get, path = "/health", responses((status = 200, description = "Service health", body = HealthResponse)), tag = "farmers")]
 async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse { status: "ok" })
 }
 
+#[utoipa::path(
+    post,
+    path = "/farmers/register",
+    request_body = FarmerRegistrationRequest,
+    responses((status = 201, description = "Farmer registered", body = FarmerRegistrationResponse)),
+    tag = "farmers"
+)]
 async fn register_farmer(
     State(state): State<AppState>,
     Json(payload): Json<FarmerRegistrationRequest>,
@@ -175,6 +228,10 @@ async fn register_farmer(
             products_for_sale: payload.products_for_sale,
         }),
     ))
+}
+
+async fn farmers_register_preflight() -> StatusCode {
+    StatusCode::NO_CONTENT
 }
 
 fn validate_registration(payload: &FarmerRegistrationRequest) -> Result<(), AppError> {
