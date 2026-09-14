@@ -1,1 +1,6 @@
-/target
+# Rust build outputs (workspace + member crates)
+/target/
+**/target/
+
+# Rustfmt backup files
+**/*.rs.bk
