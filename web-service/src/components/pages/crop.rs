@@ -6,7 +6,7 @@ use super::super::{cards::farmer_cards, layout::Layout};
 
 #[component]
 pub fn CropPage(crop: String, farmers: Vec<Farmer>) -> impl IntoView {
-    let title = format!("Tup | {} farmers", crop);
+    let title = format!("Țup | {} farmers", crop);
     let description = format!("Find farmers cultivating {} and explore produce available near you.", crop);
     let cards = farmer_cards(farmers);
     view! {
