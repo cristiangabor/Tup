@@ -12,6 +12,28 @@ services:
     ports:
       - "3000:3000"
 
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3002
+      DATABASE_URL: postgres://postgres:postgres@db:5432/tup
+      JWT_ACCESS_SECRET: replace-with-long-random-access-secret
+      JWT_REFRESH_SECRET: replace-with-long-random-refresh-secret
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: Lax
+      COOKIE_DOMAIN: ""
+      GOOGLE_CLIENT_ID: replace-me
+      GOOGLE_CLIENT_SECRET: replace-me
+      GOOGLE_REDIRECT_URL: http://localhost:3002/auth/google/callback
+      FRONTEND_REDIRECT_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3002:3002"
+
   db:
     image: postgres:17-bookworm
     environment:
@@ -27,6 +49,17 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  web-service:
+    build:
+      context: ./web-service
+      dockerfile: Dockerfile
+    environment:
+      PORT: 3001
+      FARMER_API_URL: http://app:3000
+      AUTH_SERVICE_URL: http://auth-service:3002
+    ports:
+      - "3001:3001"
 
 volumes:
   postgres_data:

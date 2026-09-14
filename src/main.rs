@@ -1,4 +1,5 @@
 use axum::{
+    extract::Path,
     extract::State,
     http::Method,
     http::StatusCode,
@@ -56,12 +57,31 @@ struct FarmerRegistrationRequest {
 #[derive(Debug, Serialize, ToSchema)]
 struct FarmerRegistrationResponse {
     id: Uuid,
+    slug: String,
     business_name: String,
     farmer_name: String,
     email: String,
     city: String,
     region: String,
     country: String,
+    latitude: f64,
+    longitude: f64,
+    cultivated_crops: Vec<String>,
+    products_for_sale: Vec<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
+struct FarmerSummary {
+    id: Uuid,
+    slug: String,
+    business_name: String,
+    farmer_name: String,
+    email: String,
+    city: String,
+    region: String,
+    country: String,
+    latitude: f64,
+    longitude: f64,
     cultivated_crops: Vec<String>,
     products_for_sale: Vec<String>,
 }
@@ -73,8 +93,8 @@ struct HealthResponse {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health_check, register_farmer),
-    components(schemas(FarmerRegistrationRequest, FarmerRegistrationResponse, HealthResponse)),
+    paths(health_check, register_farmer, list_farmers, get_farmer),
+    components(schemas(FarmerRegistrationRequest, FarmerRegistrationResponse, FarmerSummary, HealthResponse)),
     tags(
         (name = "farmers", description = "Farmer business registration and health endpoints")
     )
@@ -83,6 +103,7 @@ struct ApiDoc;
 
 enum AppError {
     Validation(String),
+    NotFound(String),
     Database(sqlx::Error),
 }
 
@@ -97,6 +118,9 @@ impl IntoResponse for AppError {
         match self {
             Self::Validation(message) => {
                 (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": message }))).into_response()
+            }
+            Self::NotFound(message) => {
+                (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": message }))).into_response()
             }
             Self::Database(error) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -129,10 +153,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/farmers", get(list_farmers))
         .route(
             "/farmers/register",
             post(register_farmer).options(farmers_register_preflight),
         )
+        .route("/farmers/{slug}", get(get_farmer))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(
             CorsLayer::new()
@@ -172,11 +198,13 @@ async fn register_farmer(
     validate_registration(&payload)?;
 
     let id = Uuid::new_v4();
+    let slug = build_slug(&payload.business_name, id);
 
     sqlx::query(
         r#"
         INSERT INTO farmers (
             id,
+            slug,
             business_name,
             farmer_name,
             email,
@@ -192,11 +220,12 @@ async fn register_farmer(
             cultivated_crops,
             products_for_sale
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
         )
         "#,
     )
     .bind(id)
+    .bind(&slug)
     .bind(&payload.business_name)
     .bind(&payload.farmer_name)
     .bind(&payload.email)
@@ -218,16 +247,68 @@ async fn register_farmer(
         StatusCode::CREATED,
         Json(FarmerRegistrationResponse {
             id,
+            slug,
             business_name: payload.business_name,
             farmer_name: payload.farmer_name,
             email: payload.email,
             city: payload.city,
             region: payload.region,
             country: payload.country,
+            latitude: payload.latitude,
+            longitude: payload.longitude,
             cultivated_crops: payload.cultivated_crops,
             products_for_sale: payload.products_for_sale,
         }),
     ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/farmers",
+    responses((status = 200, description = "Farmers list", body = [FarmerSummary])),
+    tag = "farmers"
+)]
+async fn list_farmers(State(state): State<AppState>) -> Result<Json<Vec<FarmerSummary>>, AppError> {
+    let farmers = sqlx::query_as::<_, FarmerSummary>(
+        r#"
+        SELECT id, slug, business_name, farmer_name, email, city, region, country, latitude, longitude, cultivated_crops, products_for_sale
+        FROM farmers
+        ORDER BY business_name ASC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(farmers))
+}
+
+#[utoipa::path(
+    get,
+    path = "/farmers/{slug}",
+    params(("slug" = String, Path, description = "Farmer slug")),
+    responses(
+        (status = 200, description = "Farmer detail", body = FarmerSummary),
+        (status = 404, description = "Farmer not found")
+    ),
+    tag = "farmers"
+)]
+async fn get_farmer(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<FarmerSummary>, AppError> {
+    let farmer = sqlx::query_as::<_, FarmerSummary>(
+        r#"
+        SELECT id, slug, business_name, farmer_name, email, city, region, country, latitude, longitude, cultivated_crops, products_for_sale
+        FROM farmers
+        WHERE slug = $1
+        "#,
+    )
+    .bind(slug.clone())
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("farmer '{slug}' not found")))?;
+
+    Ok(Json(farmer))
 }
 
 async fn farmers_register_preflight() -> StatusCode {
@@ -269,6 +350,7 @@ async fn ensure_schema(db: &PgPool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS farmers (
             id UUID PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
             business_name TEXT NOT NULL,
             farmer_name TEXT NOT NULL,
             email TEXT NOT NULL,
@@ -290,5 +372,46 @@ async fn ensure_schema(db: &PgPool) -> Result<(), sqlx::Error> {
     .execute(db)
     .await?;
 
+    sqlx::query("ALTER TABLE farmers ADD COLUMN IF NOT EXISTS slug TEXT")
+        .execute(db)
+        .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE farmers
+        SET slug = regexp_replace(lower(business_name), '[^a-z0-9]+', '-', 'g') || '-' || substr(replace(id::text, '-', ''), 1, 8)
+        WHERE slug IS NULL OR slug = ''
+        "#,
+    )
+    .execute(db)
+    .await?;
+
+    sqlx::query("ALTER TABLE farmers ALTER COLUMN slug SET NOT NULL")
+        .execute(db)
+        .await?;
+
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_farmers_slug ON farmers(slug)")
+        .execute(db)
+        .await?;
+
     Ok(())
+}
+
+fn build_slug(name: &str, id: Uuid) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+
+    for ch in name.chars().flat_map(|ch| ch.to_lowercase()) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+
+    let slug = slug.trim_matches('-').to_string();
+    let suffix = id.simple().to_string();
+    format!("{}-{}", if slug.is_empty() { "farm" } else { &slug }, &suffix[..8])
 }
