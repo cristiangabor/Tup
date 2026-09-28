@@ -5,11 +5,18 @@ use crate::models::MeResponse;
 use super::super::layout::Layout;
 
 #[component]
-pub fn DashboardPage(current_user: Option<MeResponse>) -> impl IntoView {
+pub fn DashboardPage(
+    current_user: Option<MeResponse>,
+    login_url: String,
+    is_authenticated: bool,
+) -> impl IntoView {
     view! {
         <Layout
             title="Tup | Farmer Dashboard".to_string()
             description="Farmer dashboard entry point for registration, inventory updates, and account tasks.".to_string()
+            login_url=login_url
+            current_user=current_user.clone()
+            is_authenticated=is_authenticated
         >
             <section class="card stack">
                 <div class="eyebrow">"Private app area"</div>

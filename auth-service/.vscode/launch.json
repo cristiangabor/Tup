@@ -1,0 +1,89 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Tup API",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/Cargo.toml"
+        ],
+        "filter": {
+          "name": "Tup",
+          "kind": "bin"
+        }
+      },
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PORT": "3000"
+      }
+    },
+    {
+      "name": "Debug Auth Service",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/auth-service/Cargo.toml"
+        ],
+        "filter": {
+          "name": "auth-service",
+          "kind": "bin"
+        }
+      },
+      "cwd": "${workspaceFolder}/auth-service",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PORT": "3002",
+        "JWT_ACCESS_SECRET": "replace-with-long-random-access-secret",
+        "JWT_REFRESH_SECRET": "replace-with-long-random-refresh-secret",
+        "COOKIE_SECURE": "false",
+        "COOKIE_SAMESITE": "Lax",
+        "COOKIE_DOMAIN": "",
+        "GOOGLE_REDIRECT_URL": "http://localhost:3002/auth/google/callback",
+        "FRONTEND_REDIRECT_URL": "http://localhost:3001"
+      }
+    },
+    {
+      "name": "Debug Web Service",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/web-service/Cargo.toml"
+        ],
+        "filter": {
+          "name": "web-service",
+          "kind": "bin"
+        }
+      },
+      "cwd": "${workspaceFolder}/web-service",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PORT": "3001",
+        "FARMER_API_URL": "http://localhost:3000",
+        "AUTH_SERVICE_URL": "http://localhost:3002",
+        "AUTH_PUBLIC_URL": "http://localhost:3002"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug All Services",
+      "configurations": [
+        "Debug Tup API",
+        "Debug Auth Service",
+        "Debug Web Service"
+      ],
+      "stopAll": true
+    }
+  ]
+}

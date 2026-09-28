@@ -46,6 +46,12 @@ cargo run
 
 By default it listens on port `3002`.
 
+For Google SSO to work locally, all three values must match your real browser flow:
+
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` must be replaced with real Google OAuth credentials.
+- `GOOGLE_REDIRECT_URL` must be registered in Google Cloud exactly as configured, for example `http://localhost:3002/auth/google/callback`.
+- `FRONTEND_REDIRECT_URL` should point to the web UI, which is `http://localhost:3001` in this repo's local compose setup.
+
 ## Scaling Implications
 
 - Service is stateless by design; auth state is in Postgres (`refresh_tokens`, `users`, `permissions`).

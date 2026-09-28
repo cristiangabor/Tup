@@ -1,11 +1,16 @@
 use leptos::prelude::*;
 
-use crate::models::Farmer;
+use crate::models::{Farmer, MeResponse};
 
 use super::super::{layout::Layout, map::LeafletMap};
 
 #[component]
-pub fn FarmerDetailPage(farmer: Farmer) -> impl IntoView {
+pub fn FarmerDetailPage(
+    farmer: Farmer,
+    login_url: String,
+    current_user: Option<MeResponse>,
+    is_authenticated: bool,
+) -> impl IntoView {
     let farmer_for_map = farmer.clone();
     let cultivated_crops = farmer
         .cultivated_crops
@@ -25,7 +30,7 @@ pub fn FarmerDetailPage(farmer: Farmer) -> impl IntoView {
         farmer.business_name, farmer.city, farmer.region
     );
     view! {
-        <Layout title=title description=description>
+        <Layout title=title description=description login_url=login_url current_user=current_user is_authenticated=is_authenticated>
             <section class="detail">
                 <section class="card stack">
                     <div>

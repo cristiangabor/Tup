@@ -22,6 +22,7 @@ use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::env;
+use std::io::{Error as IoError, ErrorKind};
 use std::net::SocketAddr;
 use thiserror::Error;
 use tower_http::cors::{Any, CorsLayer};
@@ -322,6 +323,8 @@ fn build_google_oauth_client() -> Result<BasicClient, Box<dyn std::error::Error>
     let redirect_url = env::var("GOOGLE_REDIRECT_URL")
         .unwrap_or_else(|_| "http://localhost:3002/auth/google/callback".to_string());
 
+    validate_google_oauth_config(&client_id, &client_secret, &redirect_url)?;
+
     let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())?;
     let token_url = TokenUrl::new("https://oauth2.googleapis.com/token".to_string())?;
 
@@ -332,6 +335,35 @@ fn build_google_oauth_client() -> Result<BasicClient, Box<dyn std::error::Error>
         Some(token_url),
     )
     .set_redirect_uri(RedirectUrl::new(redirect_url)?))
+}
+
+fn validate_google_oauth_config(
+    client_id: &str,
+    client_secret: &str,
+    redirect_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let invalid_client_id = client_id.trim().is_empty()
+        || matches!(client_id, "replace-me" | "set-google-client-id");
+    let invalid_client_secret = client_secret.trim().is_empty()
+        || matches!(client_secret, "replace-me" | "set-google-client-secret");
+
+    if invalid_client_id || invalid_client_secret {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "Google SSO is misconfigured: set real GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET values before starting auth-service.",
+        )
+        .into());
+    }
+
+    if !redirect_url.contains("/auth/google/callback") {
+        return Err(IoError::new(
+            ErrorKind::InvalidInput,
+            "Google SSO is misconfigured: GOOGLE_REDIRECT_URL must point to /auth/google/callback.",
+        )
+        .into());
+    }
+
+    Ok(())
 }
 
 #[utoipa::path(

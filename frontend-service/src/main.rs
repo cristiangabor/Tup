@@ -32,6 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_else(|_| "http://localhost:3000".to_string()),
         auth_service_url: env::var("AUTH_SERVICE_URL")
             .unwrap_or_else(|_| "http://localhost:3002".to_string()),
+        auth_public_url: env::var("AUTH_PUBLIC_URL")
+            .unwrap_or_else(|_| "http://localhost:3002".to_string()),
     };
 
     let app = build_router(state);

@@ -1,16 +1,24 @@
 use leptos::prelude::*;
 
-use crate::models::Farmer;
+use crate::models::{Farmer, MeResponse};
 
 use super::super::{cards::farmer_cards, layout::Layout, map::LeafletMap};
 
 #[component]
-pub fn HomePage(farmers: Vec<Farmer>) -> impl IntoView {
+pub fn HomePage(
+    farmers: Vec<Farmer>,
+    login_url: String,
+    current_user: Option<MeResponse>,
+    is_authenticated: bool,
+) -> impl IntoView {
     let cards = farmer_cards(farmers.clone());
     view! {
         <Layout
-            title="Tup | Discover Local Farmers".to_string()
+            title="Țup | Discover Local Farmers".to_string()
             description="Find local farmers, explore what they cultivate, and discover produce available near you.".to_string()
+            login_url=login_url
+            current_user=current_user
+            is_authenticated=is_authenticated
         >
             <section class="page">
                 <LeafletMap farmers=farmers.clone() />

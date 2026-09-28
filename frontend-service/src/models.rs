@@ -16,7 +16,7 @@ pub struct Farmer {
     pub products_for_sale: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct MeResponse {
     pub user_id: String,
     pub email: String,

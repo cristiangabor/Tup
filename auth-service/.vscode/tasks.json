@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "compose-up-db",
+      "type": "shell",
+      "command": "bash -lc 'if command -v docker >/dev/null 2>&1; then docker compose up -d db; else echo \"docker is not available in this dev container. Run this task in a Docker-capable environment or mount a Docker socket before launching the debug configuration.\" >&2; exit 127; fi'",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose-up-stack",
+      "type": "shell",
+      "command": "bash -lc 'if command -v docker >/dev/null 2>&1; then docker compose up --build; else echo \"docker is not available in this dev container. Run this task in a Docker-capable environment or mount a Docker socket before starting the Compose stack.\" >&2; exit 127; fi'",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "isBackground": false
+    }
+  ]
+}

@@ -41,8 +41,40 @@ This project now includes a minimal Axum service for registering farmer business
 With Docker:
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+The root `.env` file is used by Docker Compose for local secrets such as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+### Debug In Devcontainer
+
+To debug line by line inside VS Code:
+
+```bash
+Dev Containers: Reopen in Container
+```
+
+Then use the Run and Debug panel and choose one of:
+
+- `Debug Tup API`
+- `Debug Auth Service`
+- `Debug Web Service`
+- `Debug All Services`
+
+If you want PostgreSQL locally, start it separately with:
+
+```bash
+docker compose up -d db
+```
+
+Then launch one of the debug profiles above. The debug tasks now start the Rust binaries directly and do not require Docker in this devcontainer.
+
+When debugging from the devcontainer, set `DATABASE_URL` in the root `.env` file to a database address the container can actually reach. The Compose hostname `db` only works for containers inside the Compose network, and `localhost` inside the devcontainer is the devcontainer itself, not your host Docker engine.
+
+If PostgreSQL is running through Docker Compose on the host, use a host-reachable address in `.env`, such as `postgres://postgres:postgres@host.docker.internal:5432/tup` when your Docker setup provides that hostname.
+
+This devcontainer image does not ship with a Docker CLI or a mounted Docker socket, so Docker-based startup still requires a Docker-capable host or a mounted Docker socket.
 
 Without Docker:
 
