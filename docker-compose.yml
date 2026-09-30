@@ -9,6 +9,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - ./backend-service:/app
     ports:
       - "3000:3000"
 

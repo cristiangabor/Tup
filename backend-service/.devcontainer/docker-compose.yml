@@ -2,14 +2,13 @@ version: '3.8'
 services:
   # Update this to the name of the service you want to work with in your docker-compose.yml file
   backend-service:
-    # Uncomment if you want to override the service's Dockerfile to one in the .devcontainer 
-    # folder. Note that the path of the Dockerfile and context is relative to the *primary* 
-    # docker-compose.yml file (the first in the devcontainer.json "dockerComposeFile"
-    # array). The sample below assumes your primary file is in the root of your project.
-    #
-    # build:
-    #   context: .
-    #   dockerfile: .devcontainer/Dockerfile
+    # The production Dockerfile's final stage uses a distroless (shell-less) base image,
+    # which is incompatible with Dev Container Features (they run shell commands during
+    # the build) and with normal dev-container use (no shell to attach to, no cargo/rustc).
+    # Build against the "builder" stage instead, which is based on rust:1.93-slim-bookworm
+    # and has a shell plus the full Rust toolchain.
+    build:
+      target: builder
 
     volumes:
       # Update this to wherever you want VS Code to mount the folder of your project

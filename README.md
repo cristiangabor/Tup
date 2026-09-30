@@ -155,10 +155,3 @@ To place the farm correctly on the map, the farmer should register:
 
 The minimum reliable location data is usually a map pin with latitude and longitude plus a readable farm address.
 
-## Status
-
-This workspace is intentionally unscaffolded. No framework, runtime, or language-specific setup has been added yet.
-
-## Next
-
-Add the application stack you want in this folder, such as Vite, Next.js, Node.js, or Python.
