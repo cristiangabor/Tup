@@ -1,0 +1,60 @@
+# Production overlay for running on a Raspberry Pi behind Cloudflare Tunnel.
+#
+# Why: the ISP assigns a CGNAT address (RFC 6598, 100.64.0.0/10) to the router,
+# so there is no real public IP to forward ports 80/443 to. Cloudflare Tunnel
+# opens an outbound-only connection from this Pi to Cloudflare's edge, so no
+# inbound port forwarding is required at all.
+#
+# NOTE: cloudflared runs natively on the Pi host via systemd, NOT in Docker.
+# Cloudflare only publishes amd64/arm64 images for cloudflare/cloudflared, and
+# this Pi's Docker daemon is 32-bit armhf (even though the kernel is aarch64),
+# so the Docker image cannot run here. Install instead with:
+#   curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+#   echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+#   sudo apt-get update && sudo apt-get install -y cloudflared
+#   sudo cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>
+#
+# Usage:
+#   1. Register/host a domain on Cloudflare (e.g. tup-app.dev) and create a
+#      tunnel in the Zero Trust dashboard (Networks -> Tunnels -> Create a
+#      tunnel -> Cloudflared connector). Add a Public Hostname rule in that
+#      tunnel: tup-app.dev -> HTTP -> localhost:80
+#   2. Add to the root .env file:
+#        PUBLIC_DOMAIN=tup-app.dev
+#        CLOUDFLARE_TUNNEL_TOKEN=your-tunnel-token (only needed for the
+#        `cloudflared service install` command above, not read by compose)
+#        GOOGLE_CLIENT_ID=...
+#        GOOGLE_CLIENT_SECRET=...
+#   3. In Google Cloud Console, add
+#        https://tup-app.dev/auth/google/callback
+#      as an authorized redirect URI for your OAuth client.
+#   4. Run:
+#        docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+#
+# Caddy serves plain HTTP on :80 (published to the host so the native
+# cloudflared service can reach it at localhost:80); TLS is terminated by
+# Cloudflare's edge, so the public site is reachable at https://tup-app.dev
+# without this Pi ever needing its own certificate or an open inbound port.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - frontend-service
+      - auth-service
+
+  auth-service:
+    environment:
+      COOKIE_SECURE: "true"
+      COOKIE_DOMAIN: ${PUBLIC_DOMAIN}
+      GOOGLE_REDIRECT_URL: https://${PUBLIC_DOMAIN}/auth/google/callback
+      FRONTEND_REDIRECT_URL: https://${PUBLIC_DOMAIN}
+
+  frontend-service:
+    environment:
+      AUTH_PUBLIC_URL: https://${PUBLIC_DOMAIN}

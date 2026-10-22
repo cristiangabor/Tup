@@ -1,5 +1,6 @@
 services:
   backend-service:
+    image: tup/backend-service:latest
     build:
       context: ./backend-service
       dockerfile: Dockerfile
@@ -15,6 +16,7 @@ services:
       - "3000:3000"
 
   auth-service:
+    image: tup/auth-service:latest
     build:
       context: ./auth-service
       dockerfile: Dockerfile
@@ -53,12 +55,13 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   frontend-service:
+    image: tup/frontend-service:latest
     build:
       context: ./frontend-service
       dockerfile: Dockerfile
     environment:
       PORT: 3001
-      FARMER_API_URL: http://app:3000
+      FARMER_API_URL: http://backend-service:3000
       AUTH_SERVICE_URL: http://auth-service:3002
       AUTH_PUBLIC_URL: http://localhost:3002
     ports:

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tup — Raspberry Pi Deployment Guide</title>
+<style>
+  @page { margin: 2cm; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1b1f23;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  h1 {
+    font-size: 26px;
+    border-bottom: 3px solid #2d6cdf;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  h2 {
+    font-size: 19px;
+    color: #2d6cdf;
+    margin-top: 28px;
+    border-bottom: 1px solid #d0d7de;
+    padding-bottom: 4px;
+  }
+  h3 {
+    font-size: 15px;
+    margin-top: 18px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    color: #57606a;
+    margin-top: 0;
+    margin-bottom: 24px;
+  }
+  .step-num {
+    display: inline-block;
+    background: #2d6cdf;
+    color: white;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    text-align: center;
+    line-height: 22px;
+    font-size: 13px;
+    margin-right: 8px;
+  }
+  pre {
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.4;
+    page-break-inside: avoid;
+  }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  p code, li code, table code {
+    background: #eef1f4;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #c2255c;
+    font-size: 12.5px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0 16px 0;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid #d0d7de;
+    padding: 6px 10px;
+    text-align: left;
+  }
+  th {
+    background: #f6f8fa;
+  }
+  .note {
+    background: #fff8c5;
+    border-left: 4px solid #d4a72c;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .warn {
+    background: #ffebe9;
+    border-left: 4px solid #cf222e;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .section {
+    page-break-inside: avoid;
+  }
+  footer {
+    margin-top: 40px;
+    color: #8c959f;
+    font-size: 11px;
+    border-top: 1px solid #d0d7de;
+    padding-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Tup — Raspberry Pi Deployment Guide</h1>
+<p class="subtitle">End-to-end steps to host the Tup app stack on a Raspberry Pi 4 and expose it publicly via a Cloudflare Tunnel and a Cloudflare-registered domain, with automatic HTTPS terminated at Cloudflare's edge.</p>
+<div class="warn"><strong>Update:</strong> this guide previously used DuckDNS + router port-forwarding for ports 80/443. That approach was abandoned because this ISP assigns the router a Carrier-Grade NAT address (RFC 6598, <code>100.64.0.0/10</code>) on its WAN interface — there is no real public IP to forward ports to, so inbound traffic from the internet can never reach the router no matter how port forwarding is configured. The fix is an outbound-only Cloudflare Tunnel, which works regardless of CGNAT since the Pi initiates the connection to Cloudflare instead of waiting for inbound connections.</div>
+
+<h2>1. Network Prerequisites</h2>
+
+<h3><span class="step-num">1</span>Find the router and the Pi on the local network</h3>
+<pre><code># Find the router (default gateway)
+ip route | grep default
+
+# Test connectivity to the Pi (example IP)
+ping -c 3 -W 2 192.168.1.132</code></pre>
+
+<h3><span class="step-num">2</span>Reserve a fixed local IP for the Pi</h3>
+<p>In the router admin panel (e.g. <code>http://192.168.1.1</code>), open <strong>DHCP Reservation / Address Reservation</strong> and bind the Pi's MAC address to a fixed IP:</p>
+<table>
+  <tr><th>Field</th><th>Example value</th></tr>
+  <tr><td>MAC Address</td><td>DC:A6:32:DE:B1:89</td></tr>
+  <tr><td>Reserved IP</td><td>192.168.1.132</td></tr>
+</table>
+
+<h3><span class="step-num">3</span>Port forwarding is NOT required</h3>
+<div class="note">Unlike a traditional port-forwarding setup, Cloudflare Tunnel opens an <strong>outbound-only</strong> connection from the Pi to Cloudflare's edge, so no router configuration (port forwarding, DMZ, virtual servers) is needed at all — this also works even if the ISP assigns a CGNAT address and there is no real public IP, which is the case here (confirmed WAN IP in the <code>100.64.0.0/10</code> range).</div>
+
+<h2>2. SSH Access to the Pi</h2>
+
+<h3><span class="step-num">4</span>Set up passwordless SSH (key-based auth)</h3>
+<pre><code>ssh-copy-id -i ~/.ssh/id_ed25519.pub cristi@192.168.1.132
+
+# Verify
+ssh -o BatchMode=yes -o ConnectTimeout=5 cristi@192.168.1.132 "echo CONNECTED"</code></pre>
+<div class="warn">Never share your SSH password in plain text (chat, tickets, etc.). Prefer key-based auth and rotate any password that was exposed.</div>
+
+<h2>3. Resolve Port Conflicts (Pi-hole)</h2>
+<p>If the Pi already runs Pi-hole, its web UI binds ports 80/443, which conflicts with the Caddy reverse proxy. Move Pi-hole off those ports:</p>
+<pre><code># Check what is listening on 80/443
+sudo ss -tlnp | grep -E ':80 |:443 '
+
+# Edit the Pi-hole webserver port in /etc/pihole/pihole.toml
+# from:   port = "80o,443os,[::]:80o,[::]:443os"
+# to:     port = "8080o,8443os,[::]:8080o,[::]:8443os"
+sudo sed -i 's/port = "80o,443os,\[::\]:80o,\[::\]:443os"/port = "8080o,8443os,[::]:8080o,[::]:8443os"/' /etc/pihole/pihole.toml
+
+sudo systemctl restart pihole-FTL</code></pre>
+
+<h2>4. Install Docker on the Pi</h2>
+<pre><code>curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+sudo sh /tmp/get-docker.sh
+sudo usermod -aG docker cristi
+
+docker --version
+docker compose version</code></pre>
+
+<div class="note">
+On some Raspberry Pi OS images, <code>uname -m</code> reports <code>aarch64</code> even though Docker runs a 32-bit (<code>arm/v7</code>) userland. If image pulls fail with "no matching manifest", force the platform explicitly:
+<pre><code>DOCKER_DEFAULT_PLATFORM=linux/arm/v7 docker compose ...</code></pre>
+Also verify any extra images (e.g. <code>linuxserver/duckdns</code>) actually publish an <code>arm/v7</code> variant before relying on them — some only ship <code>amd64</code>/<code>arm64</code>.
+</div>
+
+<h2>5. Copy the Project to the Pi</h2>
+<pre><code>rsync -az --info=progress2 \
+  --exclude 'target' \
+  --exclude '.git' \
+  --exclude 'node_modules' \
+  --exclude '*/target' \
+  ./ cristi@192.168.1.132:~/apps/tup/
+
+# Promote to the final deploy path used by systemd
+sudo mkdir -p /opt/tup
+sudo rsync -a ~/apps/tup/ /opt/tup/</code></pre>
+
+<h2>6. Cloudflare Tunnel — Domain + Outbound-Only Public Access</h2>
+<p>Register (or transfer) a domain via <a href="https://dash.cloudflare.com">Cloudflare Registrar</a> or add an existing domain to a Cloudflare account as a zone (e.g. <code>tup-app.dev</code>). The domain's zone <strong>must</strong> be in the same Cloudflare account that creates the tunnel, since Public Hostname routing auto-manages the DNS record. A free DuckDNS-style subdomain cannot be used here for that reason.</p>
+
+<h3><span class="step-num">5</span>Create the tunnel and install <code>cloudflared</code> natively</h3>
+<p>In the Cloudflare Zero Trust dashboard, go to <strong>Networks → Tunnels → Create a tunnel</strong> (Cloudflared connector type) and copy the generated tunnel token.</p>
+<div class="warn">Do <strong>not</strong> run <code>cloudflared</code> as a Docker container on this Pi. The official <code>cloudflare/cloudflared</code> image only publishes <code>amd64</code>/<code>arm64</code> manifests — there is no 32-bit <code>arm/v7</code> build. This Pi's Docker daemon reports a 32-bit (<code>arm/v7</code>) userland even though the kernel is <code>aarch64</code>, so forcing the <code>arm64</code> image via <code>--platform</code> pulls successfully but fails to execute (exits silently with code 159, no logs) — the 32-bit container runtime cannot run 64-bit binaries. Install <code>cloudflared</code> natively via apt instead.</div>
+<pre><code># Add Cloudflare's apt repo and install cloudflared natively (armhf package)
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared noble main' | \
+  sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install -y cloudflared
+
+# Register cloudflared as a systemd service using the tunnel token from the dashboard
+sudo cloudflared service install &lt;CLOUDFLARE_TUNNEL_TOKEN&gt;
+
+# Confirm it's running and connected
+sudo systemctl status cloudflared
+sudo journalctl -u cloudflared -n 20</code></pre>
+<div class="note">Use the apt codename that actually matches what <code>apt-get update</code> resolves on this Pi (confirmed as <code>noble</code>, not <code>bookworm</code>, on the current Raspberry Pi OS image) — check <code>/etc/os-release</code> or the apt output if unsure.</div>
+
+<h3><span class="step-num">6</span>Add the Public Hostname route</h3>
+<div class="warn">This is a separate, easy-to-miss step from creating the tunnel. A tunnel can show "healthy"/connected with zero actual routing rules and zero DNS records until a Public Hostname is added.</div>
+<p>In the tunnel's dashboard, open the <strong>Public Hostname</strong> tab and add a route:</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Domain</td><td>tup-app.dev</td></tr>
+  <tr><td>Type</td><td>HTTP</td></tr>
+  <tr><td>URL</td><td>localhost:80</td></tr>
+</table>
+<p>Because <code>cloudflared</code> runs natively on the host (not inside the Docker Compose network), the ingress target must be <code>localhost:80</code>, not a Docker service name like <code>caddy:80</code>. Adding this route also auto-creates the public DNS record for the domain, pointing at Cloudflare's anycast IPs.</p>
+<div class="note">DNS propagation speed varies by resolver even once correctly configured — major public resolvers (1.1.1.1, 8.8.8.8, 9.9.9.9, 208.67.222.222) typically pick it up quickly, but an ISP's own resolver can lag behind by several minutes or more. To validate the app itself is working without waiting on DNS, bypass resolution entirely:
+<pre><code># Get a known-good IP from a fast public resolver
+dig @1.1.1.1 +short tup-app.dev
+
+# Hit the app directly via that IP, still over real TLS/SNI
+curl --resolve tup-app.dev:443:&lt;ip-from-above&gt; https://tup-app.dev/</code></pre></div>
+
+<h2>7. Google OAuth Redirect URI</h2>
+<p>In Google Cloud Console, add the production callback URL to the OAuth client's authorized redirect URIs:</p>
+<pre><code>https://tup-app.dev/auth/google/callback</code></pre>
+
+<h2>8. Environment File</h2>
+<pre><code># /opt/tup/.env
+PUBLIC_DOMAIN=tup-app.dev
+GOOGLE_CLIENT_ID=&lt;your-client-id&gt;
+GOOGLE_CLIENT_SECRET=&lt;your-client-secret&gt;</code></pre>
+<div class="note"><code>CLOUDFLARE_TUNNEL_TOKEN</code> is only needed once, for the <code>cloudflared service install</code> command in step 5 — it is not read by Docker Compose and does not need to go in this file.</div>
+
+<h2>9. Build and Launch the Stack</h2>
+<pre><code>cd /opt/tup
+sudo DOCKER_DEFAULT_PLATFORM=linux/arm/v7 \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build</code></pre>
+<p>Caddy now serves plain HTTP on port 80 only (published to the host as <code>80:80</code>) and no longer manages any TLS certificates — TLS is terminated at Cloudflare's edge, and traffic reaches Caddy through the Cloudflare Tunnel.</p>
+
+<h2>10. Auto-Start on Boot (systemd)</h2>
+<pre><code>sudo cp deploy/systemd/tup.service /etc/systemd/system/tup.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now tup.service
+
+# Check status / logs
+systemctl status tup.service
+journalctl -u tup.service -f</code></pre>
+<div class="note"><code>cloudflared</code> is a separate systemd service (installed in step 5) that starts independently on boot — it is not managed by <code>tup.service</code> or Docker Compose.</div>
+
+<h2>11. Verify From Outside the Network</h2>
+<pre><code>curl -I https://tup-app.dev</code></pre>
+<p>Since there are no inbound ports to check, a third-party port checker (e.g. canyouseeme.org) is not useful here — instead confirm the tunnel has active connections (<code>cloudflared tunnel info</code> or the dashboard's tunnel overview) and that the Public Hostname route is listed.</p>
+
+<h2>Architecture Overview</h2>
+<table>
+  <tr><th>Component</th><th>Purpose</th></tr>
+  <tr><td>Cloudflare Tunnel (cloudflared, native systemd service)</td><td>Outbound-only connection from the Pi to Cloudflare's edge; works regardless of CGNAT; no inbound ports needed</td></tr>
+  <tr><td>Cloudflare edge</td><td>Terminates public TLS/HTTPS for tup-app.dev and forwards requests through the tunnel</td></tr>
+  <tr><td>Caddy</td><td>Reverse proxy on plain HTTP :80, routes <code>/auth/*</code> to auth-service and everything else to frontend-service</td></tr>
+  <tr><td>auth-service</td><td>Handles <code>/auth/*</code> routes, Google OAuth, JWT/session cookies</td></tr>
+  <tr><td>frontend-service</td><td>Serves the Leptos web app, proxies to backend/auth APIs</td></tr>
+  <tr><td>backend-service</td><td>Farmer registration API</td></tr>
+  <tr><td>db</td><td>PostgreSQL database</td></tr>
+</table>
+
+<footer>Generated for the Tup project deployment to a Raspberry Pi 4.</footer>
+
+</body>
+</html>

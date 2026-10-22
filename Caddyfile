@@ -1,0 +1,16 @@
+# Plain HTTP only: TLS is terminated at Cloudflare's edge, and traffic reaches
+# this container through a Cloudflare Tunnel (cloudflared), so Caddy never
+# needs to obtain its own certificate here.
+:80 {
+	encode gzip
+
+	# Browser-initiated auth routes (Google login/callback, cookie-setting endpoints)
+	handle /auth/* {
+		reverse_proxy auth-service:3002
+	}
+
+	# Everything else is served by the frontend
+	handle {
+		reverse_proxy frontend-service:3001
+	}
+}

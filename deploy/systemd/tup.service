@@ -1,0 +1,34 @@
+# Auto-starts the Tup docker compose stack on Raspberry Pi boot.
+#
+# Install on the Pi:
+#   sudo cp deploy/systemd/tup.service /etc/systemd/system/tup.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tup.service
+#
+# Check status / logs:
+#   systemctl status tup.service
+#   journalctl -u tup.service -f
+#
+# Stop / restart:
+#   sudo systemctl stop tup.service
+#   sudo systemctl restart tup.service
+#
+# If the repo lives somewhere other than /opt/tup, edit WorkingDirectory below
+# to match the actual clone path on the Pi.
+
+[Unit]
+Description=Tup app stack (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/tup
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

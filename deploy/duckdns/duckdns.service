@@ -1,0 +1,6 @@
+[Unit]
+Description=Update DuckDNS domain with current public IP
+
+[Service]
+Type=oneshot
+ExecStart=/opt/tup/deploy/duckdns/update-duckdns.sh
