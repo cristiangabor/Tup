@@ -1,5 +1,4 @@
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
-use argon2::Argon2;
+use argon2::password_hash::{rand_core::OsRng};
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, Method, StatusCode},
@@ -124,43 +123,9 @@ struct Claims {
 
 #[derive(Debug, Deserialize)]
 #[derive(ToSchema)]
-struct RegisterRequest {
-    #[schema(example = "farmer@example.com")]
-    email: String,
-    #[schema(example = "StrongPassword123")]
-    password: String,
-    #[schema(example = "Farmer One")]
-    full_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[derive(ToSchema)]
-struct LoginRequest {
-    #[schema(example = "farmer@example.com")]
-    email: String,
-    #[schema(example = "StrongPassword123")]
-    password: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[derive(ToSchema)]
-struct AuthorizeRequest {
-    #[schema(example = "farmers:write")]
-    permission: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[derive(ToSchema)]
 struct GoogleCallbackQuery {
     code: String,
     state: String,
-}
-
-#[derive(Debug, Serialize)]
-#[derive(ToSchema)]
-struct AuthResponse {
-    message: String,
-    user_id: Uuid,
 }
 
 #[derive(Debug, Serialize)]
@@ -200,22 +165,14 @@ struct LogoutResponse {
     paths(
         health,
         csrf_token,
-        register,
-        login,
-        refresh,
         logout,
         me,
-        authorize,
         google_login,
         google_callback
     ),
     components(
         schemas(
-            RegisterRequest,
-            LoginRequest,
-            AuthorizeRequest,
             GoogleCallbackQuery,
-            AuthResponse,
             MeResponse,
             CsrfResponse,
             AuthorizeResponse,
@@ -233,7 +190,6 @@ struct ApiDoc;
 struct UserRow {
     id: Uuid,
     email: String,
-    password_hash: Option<String>,
     full_name: Option<String>,
     auth_provider: String,
 }
@@ -291,12 +247,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/auth/csrf", get(csrf_token))
-        .route("/auth/register", post(register))
-        .route("/auth/login", post(login))
-        .route("/auth/refresh", post(refresh).options(preflight_ok))
         .route("/auth/logout", post(logout).options(preflight_ok))
         .route("/auth/me", get(me))
-        .route("/auth/authorize", post(authorize).options(preflight_ok))
         .route("/auth/google/login", get(google_login))
         .route("/auth/google/callback", get(google_callback))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -396,152 +348,6 @@ async fn csrf_token(State(state): State<AppState>, jar: CookieJar) -> Result<(Co
 
 #[utoipa::path(
     post,
-    path = "/auth/register",
-    tag = "auth",
-    request_body = RegisterRequest,
-    responses(
-        (status = 201, description = "User registered", body = AuthResponse),
-        (status = 400, description = "Validation error", body = ErrorResponse)
-    )
-)]
-async fn register(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    Json(payload): Json<RegisterRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    validate_email_password(&payload.email, &payload.password)?;
-    let hash = hash_password(&payload.password)?;
-    let user_id = Uuid::new_v4();
-
-    let created = sqlx::query(
-        r#"
-        INSERT INTO users (id, email, password_hash, full_name, auth_provider)
-        VALUES ($1, $2, $3, $4, 'local')
-        ON CONFLICT(email) DO NOTHING
-        "#,
-    )
-    .bind(user_id)
-    .bind(payload.email.to_lowercase())
-    .bind(hash)
-    .bind(payload.full_name)
-    .execute(&state.db)
-    .await?;
-
-    if created.rows_affected() == 0 {
-        return Err(AppError::Validation("email is already registered".to_string()));
-    }
-
-    let (jar, uid) = issue_auth_cookies(jar, &state, user_id).await?;
-    Ok((
-        StatusCode::CREATED,
-        jar,
-        Json(AuthResponse {
-            message: "registration successful".to_string(),
-            user_id: uid,
-        }),
-    ))
-}
-
-#[utoipa::path(
-    post,
-    path = "/auth/login",
-    tag = "auth",
-    request_body = LoginRequest,
-    responses(
-        (status = 200, description = "Login successful", body = AuthResponse),
-        (status = 401, description = "Invalid credentials", body = ErrorResponse)
-    )
-)]
-async fn login(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    Json(payload): Json<LoginRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let user = find_user_by_email(&state.db, &payload.email).await?;
-    let user = user.ok_or(AppError::Unauthorized)?;
-    let hash = user.password_hash.clone().ok_or(AppError::Unauthorized)?;
-
-    if !verify_password(&payload.password, &hash)? {
-        return Err(AppError::Unauthorized);
-    }
-
-    let (jar, uid) = issue_auth_cookies(jar, &state, user.id).await?;
-    Ok((
-        StatusCode::OK,
-        jar,
-        Json(AuthResponse {
-            message: "login successful".to_string(),
-            user_id: uid,
-        }),
-    ))
-}
-
-#[utoipa::path(
-    post,
-    path = "/auth/refresh",
-    tag = "auth",
-    responses(
-        (status = 200, description = "Token rotated", body = AuthResponse),
-        (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 403, description = "CSRF check failed", body = ErrorResponse)
-    )
-)]
-async fn refresh(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
-) -> Result<impl IntoResponse, AppError> {
-    validate_csrf(&headers, &jar)?;
-    let refresh_cookie = jar
-        .get("refresh_token")
-        .map(|c| c.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
-
-    let claims = decode_token(&refresh_cookie, &state.cfg.refresh_secret, "refresh")?;
-    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
-    let jti = Uuid::parse_str(&claims.jti).map_err(|_| AppError::Unauthorized)?;
-
-    let mut tx = state.db.begin().await?;
-
-    let token_row = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(1) FROM refresh_tokens WHERE jti = $1 AND revoked_at IS NULL AND expires_at > NOW()",
-    )
-    .bind(jti)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if token_row == 0 {
-        return Err(AppError::Unauthorized);
-    }
-
-    sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE jti = $1")
-        .bind(jti)
-        .execute(&mut *tx)
-        .await?;
-
-    let (jar, uid, new_jti) = build_auth_cookies(jar, &state.cfg, user_id)?;
-
-    sqlx::query("INSERT INTO refresh_tokens (jti, user_id, expires_at) VALUES ($1, $2, $3)")
-        .bind(new_jti)
-        .bind(uid)
-        .bind(Utc::now() + Duration::days(7))
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok((
-        StatusCode::OK,
-        jar,
-        Json(AuthResponse {
-            message: "token refreshed".to_string(),
-            user_id: uid,
-        }),
-    ))
-}
-
-#[utoipa::path(
-    post,
     path = "/auth/logout",
     tag = "auth",
     responses(
@@ -609,49 +415,6 @@ async fn me(State(state): State<AppState>, jar: CookieJar) -> Result<Json<MeResp
     }))
 }
 
-#[utoipa::path(
-    post,
-    path = "/auth/authorize",
-    tag = "auth",
-    request_body = AuthorizeRequest,
-    responses(
-        (status = 200, description = "Authorization result", body = AuthorizeResponse),
-        (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 403, description = "CSRF check failed", body = ErrorResponse)
-    )
-)]
-async fn authorize(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    Json(payload): Json<AuthorizeRequest>,
-) -> Result<Json<AuthorizeResponse>, AppError> {
-    validate_csrf(&headers, &jar)?;
-    let access = jar
-        .get("access_token")
-        .map(|c| c.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
-
-    let claims = decode_token(&access, &state.cfg.access_secret, "access")?;
-    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
-
-    let granted = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(1)
-        FROM user_permissions up
-        JOIN permissions p ON up.permission_id = p.id
-        WHERE up.user_id = $1 AND p.name = $2
-        "#,
-    )
-    .bind(user_id)
-    .bind(payload.permission)
-    .fetch_one(&state.db)
-    .await?;
-
-    Ok(Json(AuthorizeResponse {
-        authorized: granted > 0,
-    }))
-}
 
 #[utoipa::path(
     get,
@@ -757,24 +520,6 @@ async fn google_callback(
     Ok((jar, Redirect::to(&state.cfg.frontend_redirect_url)))
 }
 
-async fn issue_auth_cookies(
-    jar: CookieJar,
-    state: &AppState,
-    user_id: Uuid,
-) -> Result<(CookieJar, Uuid), AppError> {
-    let mut tx = state.db.begin().await?;
-    let (jar, uid, refresh_jti) = build_auth_cookies(jar, &state.cfg, user_id)?;
-
-    sqlx::query("INSERT INTO refresh_tokens (jti, user_id, expires_at) VALUES ($1, $2, $3)")
-        .bind(refresh_jti)
-        .bind(uid)
-        .bind(Utc::now() + Duration::days(7))
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-    Ok((jar, uid))
-}
 
 fn build_auth_cookies(jar: CookieJar, cfg: &AppConfig, user_id: Uuid) -> Result<(CookieJar, Uuid, Uuid), AppError> {
     let now = Utc::now();
@@ -938,33 +683,6 @@ fn validate_csrf(headers: &HeaderMap, jar: &CookieJar) -> Result<(), AppError> {
     }
 }
 
-fn validate_email_password(email: &str, password: &str) -> Result<(), AppError> {
-    if !email.contains('@') {
-        return Err(AppError::Validation("email must be valid".to_string()));
-    }
-    if password.len() < 8 {
-        return Err(AppError::Validation(
-            "password must be at least 8 characters".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn hash_password(password: &str) -> Result<String, AppError> {
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| AppError::Validation(e.to_string()))?
-        .to_string();
-    Ok(hash)
-}
-
-fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
-    let parsed = PasswordHash::new(hash).map_err(|e| AppError::Validation(e.to_string()))?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
-}
 
 async fn find_user_by_email(db: &PgPool, email: &str) -> Result<Option<UserRow>, AppError> {
     let user = sqlx::query_as::<_, UserRow>(

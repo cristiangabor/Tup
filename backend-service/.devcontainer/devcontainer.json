@@ -17,21 +17,22 @@
 
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
 	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
-	"workspaceFolder": "/workspaces/Tup/backend-service",
-	"features": {
-		"ghcr.io/devcontainers/features/rust:1": {}
-	}
+        "workspaceFolder": "/workspaces/Tup/backend-service",
+        "features": {
+                "ghcr.io/devcontainers/features/rust:1": {}
+        },
 
-	// Features to add to the dev container. More info: https://containers.dev/features.
-	// "features": {},
+        // Only start what this dev container needs. Without this, compose also starts
+        // frontend-service/auth-service from their production (distroless, shell-less)
+        // images, and the Dev Containers extension later tries to reuse those broken
+        // containers when opening the other services' dev containers.
+        "runServices": ["db"]
 
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
+        // Features to add to the dev container. More info: https://containers.dev/features.
+        // "features": {},
 
-	// Uncomment the next line if you want start specific services in your Docker Compose config.
-	// "runServices": [],
-
-	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
+        // Use 'forwardPorts' to make a list of ports inside the container available locally.
+        // "forwardPorts": [],	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
 	// "shutdownAction": "none",
 
 	// Uncomment the next line to run commands after the container is created.

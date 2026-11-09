@@ -20,6 +20,8 @@ services:
     build:
       context: ./auth-service
       dockerfile: Dockerfile
+    env_file:
+      - ./auth-service/.env
     environment:
       PORT: 3002
       DATABASE_URL: postgres://postgres:postgres@db:5432/tup

@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo build",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build", "--bin", "web-service"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "cargo run",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["run", "--bin", "web-service"],
+      "problemMatcher": ["$rustc"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "RUST_LOG": "debug",
+          "PORT": "3001",
+          "FARMER_API_URL": "http://backend-service:3000",
+          "AUTH_SERVICE_URL": "http://auth-service:3002"
+        }
+      }
+    },
+    {
+      "label": "cargo test",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["test"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "test", "isDefault": true }
+    }
+  ]
+}

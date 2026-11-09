@@ -1,0 +1,9 @@
+{
+  // Use the container's system liblldb so CodeLLDB doesn't need to download one.
+  "lldb.library": "/usr/lib/llvm-14/lib/liblldb.so.1",
+  "lldb.launch.sourceLanguages": ["rust"],
+
+  // Let rust-analyzer's "Debug" code-lens use CodeLLDB.
+  "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
+  "rust-analyzer.check.command": "clippy"
+}

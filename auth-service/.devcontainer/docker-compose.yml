@@ -1,0 +1,46 @@
+services:
+  # Dedicated dev-container service. It deliberately does NOT reuse the `auth-service`
+  # name/image from the root docker-compose.yml: that one is the production image
+  # (distroless, user 65532, no shell) and gets recreated whenever the full stack or
+  # another service's dev container starts. Sharing the name made the Dev Containers
+  # extension attach to the production container and fail with "Container ... is not running".
+  auth-service-dev:
+    # Build the "builder" stage (rust:1.93-slim-bookworm) which has a shell and the full
+    # Rust toolchain, unlike the distroless final stage.
+    # NOTE: relative paths here resolve against the *first* compose file's directory
+    # (the repo root `Tup/`), not this file's directory.
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+      target: builder
+    image: tup/auth-service-dev:latest
+    command: sleep infinity
+    # Same .env the production auth-service uses (relative to the repo root `Tup/`).
+    # Copy auth-service/.env.example to auth-service/.env and fill in real secrets.
+    env_file:
+      - ./auth-service/.env
+    # Dev-only overrides; these take precedence over values from env_file.
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/tup
+      PORT: "3002"
+      COOKIE_SECURE: "false"
+      GOOGLE_REDIRECT_URL: http://localhost:3002/auth/google/callback
+      FRONTEND_REDIRECT_URL: http://localhost:3001
+    volumes:
+      - .:/workspaces/Tup:cached
+      - auth-cargo-registry:/usr/local/cargo/registry
+      - auth-cargo-target:/workspaces/Tup/auth-service/target
+    # Same host port the production auth-service would use, so the frontend can reach it.
+    ports:
+      - "3002:3002"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  auth-cargo-registry:
+  auth-cargo-target:

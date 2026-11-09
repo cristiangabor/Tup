@@ -1,38 +1,46 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-docker-compose
 {
-  "name": "Tup Rust Services",
-  "dockerComposeFile": [
-    "../docker-compose.yml",
-    "../docker-compose.dev.yml"
-  ],
-  "service": "devcontainer",
-  "workspaceFolder": "/workspaces/Tup",
-  "runServices": [
-    "db",
-    "devcontainer"
-  ],
-  "shutdownAction": "stopCompose",
-  "runArgs": [
-    "--cap-add=SYS_PTRACE",
-    "--security-opt=seccomp=unconfined"
-  ],
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "rust-lang.rust-analyzer",
-        "vadimcn.vscode-lldb",
-        "tamasfe.even-better-toml"
-      ],
-      "settings": {
-        "editor.formatOnSave": true,
-        "rust-analyzer.check.command": "clippy",
-        "lldb.dbgconfig": {
-          "terminal": "integrated"
-        }
-      }
-    }
-  },
-  "remoteUser": "vscode",
-  "updateRemoteUserUID": true,
-  "overrideCommand": false,
-  "postCreateCommand": "rustc --version && cargo --version"
+	"name": "Auth Service",
+
+	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
+	// The
+	//  .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
+	"dockerComposeFile": [
+		"../../docker-compose.yml",
+		"docker-compose.yml"
+	],
+
+	// The 'service' property is the name of the service for the container that VS Code should
+	// use. Update this value and .devcontainer/docker-compose.yml to the real service name.
+	"service": "auth-service-dev",
+
+	// The optional 'workspaceFolder' property is the path VS Code should open by default when
+	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
+        "workspaceFolder": "/workspaces/Tup/auth-service",
+        "features": {
+                "ghcr.io/devcontainers/features/rust:1": {}
+        },
+
+        // Only start what this dev container needs. Without this, compose also starts
+        // frontend-service/auth-service from their production (distroless, shell-less)
+        // images, and the Dev Containers extension later tries to reuse those broken
+        // containers when opening the other services' dev containers.
+        "runServices": ["db", "auth-service-dev"]
+
+        // Features to add to the dev container. More info: https://containers.dev/features.
+        // "features": {},
+
+        // Use 'forwardPorts' to make a list of ports inside the container available locally.
+        // "forwardPorts": [],	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
+	// "shutdownAction": "none",
+
+	// Uncomment the next line to run commands after the container is created.
+	// "postCreateCommand": "cat /etc/os-release",
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "devcontainer"
 }
